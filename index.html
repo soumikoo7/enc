@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encrypt & Decrypt</title>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #e9ecef;
+        }
+        .container {
+            max-width: 700px;
+            margin: 40px auto;
+            background: #ffffff;
+            padding: 30px;
+            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.15);
+            border-radius: 10px;
+        }
+        h1 {
+            font-size: 24px;
+            text-align: center;
+            margin-bottom: 20px;
+            color: #343a40;
+        }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            margin: 15px 0;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 16px;
+            resize: vertical;
+        }
+        button {
+            padding: 12px 20px;
+            background-color: #007bff;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .key-display {
+            background: #f8f9fa;
+            padding: 15px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #495057;
+            margin-top: 15px;
+        }
+        .instructions {
+            font-size: 14px;
+            color: #6c757d;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Encrypt & Decrypt</h1>
+        <p class="instructions">Securely encrypt or decrypt text with AES-GCM. Generate a key to get started!</p>
+        <textarea id="inputText" rows="5" placeholder="Enter text to encrypt or decrypt..."></textarea>
+        <div class="button-group">
+            <button id="pasteButton">Paste</button>
+            <button id="clearButton">Clear All</button>
+        </div>
+        <button id="generateKeyButton">Generate Key</button>
+        <button id="encryptButton" disabled>Encrypt</button>
+        <textarea id="outputText" rows="5" readonly placeholder="Encrypted text or link will appear here..."></textarea>
+        <div class="button-group">
+            <button id="copyButton">Copy</button>
+        </div>
+        <button id="decryptButton" disabled>Decrypt</button>
+    </div>
+    <script>
+        let encryptionKey; // Holds the AES encryption key
+        let iv;            // Holds the Initialization Vector (IV) for AES-GCM
+
+        // Generate a new AES encryption key
+        async function generateKey() {
+            encryptionKey = await window.crypto.subtle.generateKey(
+                {
+                    name: "AES-GCM",
+                    length: 256,
+                },
+                true,
+                ["encrypt", "decrypt"]
+            );
+
+            iv = window.crypto.getRandomValues(new Uint8Array(12)); // Generate a random IV
+            alert("Encryption key generated! You can now encrypt and decrypt messages.");
+            document.getElementById("encryptButton").disabled = false;
+            document.getElementById("decryptButton").disabled = false;
+        }
+
+        // Encrypt text
+        async function encryptText() {
+            const input = document.getElementById("inputText").value;
+            if (!input) {
+                alert("Please enter text to encrypt.");
+                return;
+            }
+            const encoded = new TextEncoder().encode(input);
+            const ciphertext = await window.crypto.subtle.encrypt(
+                {
+                    name: "AES-GCM",
+                    iv: iv,
+                },
+                encryptionKey,
+                encoded
+            );
+
+            // Export the key and generate a sharable link
+            const keyExport = await window.crypto.subtle.exportKey("raw", encryptionKey);
+            const keyBase64 = btoa(String.fromCharCode(...new Uint8Array(keyExport)));
+            const ivBase64 = btoa(String.fromCharCode(...iv)); // Convert IV to Base64
+            const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+
+            const shareableLink = `${window.location.href}?key=${encodeURIComponent(keyBase64)}&iv=${encodeURIComponent(ivBase64)}&ciphertext=${encodeURIComponent(encryptedBase64)}`;
+
+            document.getElementById("outputText").value = shareableLink;
+        }
+
+        // Decrypt text
+        async function decryptText() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const keyBase64 = urlParams.get("key");
+            const ciphertextBase64 = urlParams.get("ciphertext");
+            const ivBase64 = urlParams.get("iv");
+
+            if (!keyBase64 || !ciphertextBase64 || !ivBase64) {
+                alert("No encryption key, ciphertext, or IV found. Please provide a valid link.");
+                return;
+            }
+
+            try {
+                // Import the key
+                const keyBytes = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
+                const importedKey = await window.crypto.subtle.importKey(
+                    "raw",
+                    keyBytes,
+                    "AES-GCM",
+                    true,
+                    ["decrypt"]
+                );
+
+                // Decode the IV and ciphertext
+                const iv = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
+                const ciphertextBytes = Uint8Array.from(atob(ciphertextBase64), c => c.charCodeAt(0));
+
+                // Decrypt the message
+                const decrypted = await window.crypto.subtle.decrypt(
+                    {
+                        name: "AES-GCM",
+                        iv: iv,
+                    },
+                    importedKey,
+                    ciphertextBytes
+                );
+
+                const decoded = new TextDecoder().decode(decrypted);
+                document.getElementById("outputText").value = decoded;
+            } catch (err) {
+                alert("Decryption failed. Make sure the key, IV, and ciphertext are valid.");
+            }
+        }
+
+        // Copy output text to clipboard
+        function copyToClipboard() {
+            const output = document.getElementById("outputText");
+            if (output.value) {
+                navigator.clipboard.writeText(output.value);
+                alert("Copied to clipboard!");
+            } else {
+                alert("Nothing to copy!");
+            }
+        }
+
+        // Paste text into input box
+        async function pasteFromClipboard() {
+            const text = await navigator.clipboard.readText();
+            document.getElementById("inputText").value = text;
+        }
+
+        // Clear the input box
+        function clearInputBox() {
+            document.getElementById("inputText").value = "";
+        }
+
+        // Check if URL has decryption parameters and prepopulate fields
+        window.onload = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const keyBase64 = urlParams.get("key");
+            const ciphertextBase64 = urlParams.get("ciphertext");
+
+            if (keyBase64 && ciphertextBase64) {
+                document.getElementById("inputText").value = decodeURIComponent(ciphertextBase64);
+                decryptText();
+            }
+        };
+
+        // Attach event listeners
+        document.getElementById("generateKeyButton").addEventListener("click", generateKey);
+        document.getElementById("encryptButton").addEventListener("click", encryptText);
+        document.getElementById("decryptButton").addEventListener("click", decryptText);
+        document.getElementById("copyButton").addEventListener("click", copyToClipboard);
+        document.getElementById("pasteButton").addEventListener("click", pasteFromClipboard);
+        document.getElementById("clearButton").addEventListener("click", clearInputBox);
+    </script>
+</body>
+</html>
